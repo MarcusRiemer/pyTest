@@ -52,6 +52,8 @@ def printHelp():
 	print "  OPTIONS:"
 	print "    --bench=TESTBENCH"
 	print "        Load the testbench form the file TESTBENCH."
+	print "        If you don't specify a specific testbench, pyTest"
+	print "        will attempt to load a bench called \"testbench.py\""
 	print "    --suite=SUITE"
 	print "        Use the testsuite SUITE from the testbench."
 	print "    --test=TEST"
@@ -84,8 +86,17 @@ def printHelp():
 	print "        Print this help"
 	exit(0)
 
+def argvContains(substr):
+	""" Returns true if argv contains the given substring """
+	return len(list(filter(lambda arg: substr in arg, sys.argv))) > 0
+
 def main():
 	TermColor.init()
+
+	# Check whether to load the default testbench
+	if not argvContains("--bench=") and os.path.isfile("testbench.py"):
+		sys.argv.append("--bench=testbench.py")
+
 	if "-h" in sys.argv or "--help" in sys.argv or "-?" in sys.argv:
 		printHelp()
 	if "--no-gui" in sys.argv:
