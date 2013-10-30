@@ -8,12 +8,12 @@ from pyTestUtils import logger, TermColor
 class TestSuiteMode:
 	#__slots__ = ['Continuous', 'BreakOnFail', 'BreakOnError']
 	"""Enumeration for testsuite modes """
-	Continuous = 0
-	"""Run all test"""
-	BreakOnFail = 1
+	BreakOnFail = 0
 	"""Halt on first failed test"""
-	BreakOnError = 2
-	"""Halt only on errors"""
+	BreakOnError = 1
+	"""Halt on first erroneous test"""
+	Continuous = 2
+	"""Run all test"""
 	
 	@staticmethod
 	def toString(mode):
@@ -34,7 +34,7 @@ class TestSuiteMode:
 class TestSuite(object):
 	"""A testsuite is a collection of tests"""
 		
-	def __init__(self, tests = [], DUT=None, mode=TestSuiteMode.BreakOnFail):
+	def __init__(self, *tests, **options):
 		"""
 		Initialises a test suite
 		
@@ -43,17 +43,23 @@ class TestSuite(object):
 		
 		@type	mode: TestSuiteMode
 		@param	mode: The initial mode of the testsuite
+		@type	DUT: str
+		@param 	DUT: The path to the Device Under Test
+		@type	timeout: float
+		@param	timeout: The time out be before the DUT gets killed
+		@type	pipe: Boolean
+		@param	pipe: Flag, set if the output streams should be piped
+		@type	outputOnFail: Boolean
+		@param	outputOnFail: Flag, set if the output streams should be piped on failed test
 		"""
-		self.setMode(mode)
+		opts = {'mode': TestSuiteMode.BreakOnFail, 'pipe':None, 'outputOnFail':None, 'timeout':None, 'DUT':None}
+		opts.update(options)
+		self.setMode(opts['mode'])
 		"""The test suite mode"""
-		self.testList = []
+		self.testList = [t for t in tests]
+		self.setAll(pipe = opts['pipe'], out = opts['outputOnFail'], timeout = opts['timeout'])
+		self.setDUT(opts['DUT'])
 		"""The collection of tests"""
-		for t in tests:
-			if isinstance(t, Test):
-				self.testList.append(t)
-				t.DUT = str(DUT)
-			else:
-				self.addTest(t, DUT)
 		self.success = 0
 		"""The number of successful tests"""
 		self.failed = 0
@@ -64,6 +70,10 @@ class TestSuite(object):
 		"""The number of errors occured during the testrun"""
 		self.timedout = 0
 		"""The total number of timed out tests"""
+		self.assertions = 0
+		"""The total number of tests that caused an assertion"""
+		self.segfaults = 0
+		"""The total number of tests that caused a segfault""" 
 		self.lastResult = TestState.Waiting
 		"""The result of the last test"""
 		self.rate = 0
@@ -96,7 +106,7 @@ class TestSuite(object):
 		"""
 		self.mode = mode
 		
-	def setDUT(self, DUT):
+	def setDUT(self, DUT = None):
 		"""Define the 'Device under Test'"""
 		if DUT is not None:
 			self.DUT = DUT
@@ -115,17 +125,13 @@ class TestSuite(object):
 	def getTests(self):
 		return self.testList
 		
-	def setAll(self, infoOnly=False, disabled=False, pipe=False, out=False, timeout=None, linesep=None): 
+	def setAll(self, state=TestState.Waiting, pipe=None, out=None, timeout=None, linesep=None): 
 		for t in self.testList:
-			if disabled:
-				t.state = TestState.Disabled
-			else:
-				t.state = TestState.Waiting
-			
-			if infoOnly:
-				t.state = TestState.InfoOnly
-			t.pipe = pipe
-			t.outputOnFail = out
+			t.state = state
+			if pipe is not None:
+				t.pipe = pipe
+			if out is not None:
+				t.outputOnFail = out
 			if timeout is not None:
 				t.timeout = timeout
 			if linesep is not None:
@@ -172,13 +178,17 @@ class TestSuite(object):
 				logger.log("Test[{:02}] {}: {}".format(self.count, t.name, TestState.toString(t.state)))
 			logger.flush(quiet)
 			if self.lastResult == TestState.Success:
-				self.success = self.success + 1
+				self.success += 1
 			elif self.lastResult == TestState.Fail:
-				self.failed = self.failed + 1
+				self.failed += 1
 			elif self.lastResult == TestState.Error:
-				self.error = self.error + 1
+				self.error += 1
 			elif self.lastResult == TestState.Timeout:
-				self.timedout = self.timedout + 1
+				self.timedout += 1
+			elif self.lastResult == TestState.SegFault:
+				self.segfaults += 1
+			elif self.lastResult == TestState.Assertion:
+				self.assertions += 1
 			yield t
 			if self.lastResult != TestState.Disabled:
 				if (self.mode == TestSuiteMode.BreakOnFail) and (self.lastResult != TestState.Success):
@@ -204,6 +214,10 @@ class TestSuite(object):
 			logger.log(TermColor.colorText("\tFailed: {}".format(self.failed), TermColor.Red))
 		if (self.error > 0):
 			logger.log(TermColor.colorText("\tErrors: {}".format(self.error), TermColor.Yellow))
+		if (self.assertions > 0):
+			logger.log(TermColor.colorText("\tAssertions: {}".format(self.assertions), TermColor.Yellow))
+		if (self.segfaults > 0):
+			logger.log(TermColor.colorText("\tSegFaults: {}".format(self.segfaults), TermColor.Yellow))
 		if (self.timedout > 0):
 			logger.log(TermColor.colorText("\tTimeouts: {}".format(self.timedout), TermColor.Purple))
 		if (self.error == 0) and (self.failed == 0) and (self.timedout == 0):

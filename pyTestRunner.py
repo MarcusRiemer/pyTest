@@ -3,20 +3,21 @@
 
 import sys
 import os
+import math
 import subprocess
 
-from threading import Thread
+#from threading import Thread
 
 from pyTestUtils import TermColor, logger
 from pyTest import Test, TestState
 from pyTestSuite import TestSuite, TestSuiteMode
-		
-class TestRunner(Thread):
+
+class TestRunner(object):
 	"""Testrunner. Reads a testbench file and executes the testrun"""
 	
 	def __init__(self):
 		"""Initialises the test runner"""
-		Thread.__init__(self)
+		#Thread.__init__(self)
 		logger.log("Welcome to pyTest Version 2")
 		self.suite = "suite"
 		"""Test suite selector"""
@@ -24,7 +25,7 @@ class TestRunner(Thread):
 		"""single test selector"""
 		self.quiet = False
 		"""Definition of the programs verbosity"""
-		self.mode = TestSuiteMode.BreakOnFail
+		self.mode = None
 		"""Mode for the test suite"""
 		self.file = ""
 		"""test bench file"""
@@ -36,8 +37,8 @@ class TestRunner(Thread):
 		self.testCount = 0
 		self.runsuite = None
 		self.finished = None
-		self.pipe = False
-		self.out = False
+		self.pipe = None
+		self.out = None
 		self.timeout = None
 		self.linesep = os.linesep
 		self.classpath = "."
@@ -120,18 +121,32 @@ class TestRunner(Thread):
 	
 	def loadSuite(self, fname = None):
 		"""Loads a python based suite from a file"""
-		logger.log("\nReading testfile ...")
 		if fname is not None:
 			self.file = fname
+		logger.log("\nReading testfile ...")
 		if self.file is not None and self.file != "" and os.path.exists(self.file):
-			glb = {"__builtins__":__builtins__, "Test":Test, "Suite":TestSuite}
+			glb = {"__builtins__":__builtins__, "math":math, "Test":Test, "Suite":TestSuite, "Mode":TestSuiteMode, "State":TestState}
 			ctx = {self.suite:None, "DUT":None}
-			self.runsuite = None
 			execfile(self.file, glb, ctx)
 			if (self.suite in ctx):
+				self.runsuite = None
 				if (ctx[self.suite] != None):
-					self.runsuite = TestSuite(ctx[self.suite], DUT=self.DUT, mode=self.mode)
-					self.runsuite.setAll(infoOnly=self.infoOnly, disabled = False, pipe=self.pipe, out=self.out, timeout = self.timeout, linesep = self.linesep)
+					if ctx[self.suite].__class__ == TestSuite:
+						self.runsuite = ctx[self.suite]
+						self.runsuite.setDUT(self.DUT)
+						if self.mode is None:
+							self.mode =self.runsuite.mode
+						elif self.runsuite.mode is None:
+							self.runsuite.mode = self.mode
+					else:
+						self.runsuite = TestSuite(*ctx[self.suite], **{'DUT':self.DUT, 'mode':self.mode})
+					self.runsuite.setAll(
+						state=TestState.InfoOnly if self.infoOnly else TestState.Waiting, 
+						pipe=self.pipe, 
+						out=self.out, 
+						timeout = self.timeout, 
+						linesep = self.linesep
+					)
 					self.testCount = len(self.runsuite.testList)
 					if 'DUT' in ctx and ctx['DUT'] is not None and self.DUT is None:
 						self.setDUT(ctx['DUT'])
@@ -140,16 +155,19 @@ class TestRunner(Thread):
 					logger.log("Sorry, but I can't find any tests inside the suite '{}'".format(self.suite))
 			else:
 				logger.log("Sorry, but there was no test-suite in the file")
-			logger.flush(self.quiet)
-			return self.runsuite
+			
+		else:
+			logger.log("Sorry, but I couldn't find the file '{}'".format(self.file))
+		logger.flush(self.quiet)
+		return self.runsuite
 		
-	def start(self, finished = None, test = -1):
-		"""start the runner-thread"""
-		self.finished = finished
-		self.test = test
-		Thread.start(self)
+	#def start(self, finished = None, test = -1):
+	#	"""start the runner-thread"""
+	#	self.finished = finished
+	#	self.test = test
+	#	Thread.start(self)
 	
-	def run(self, doYield = False):
+	def run(self):
 		"""Thread run function"""
 		if self.lengthOnly:
 			print len(self.runsuite.getTests())
@@ -166,7 +184,7 @@ class TestRunner(Thread):
 				logger.flush(self.quiet)
 		if self.finished != None:
 			self.finished()
-		Thread.__init__(self) # This looks like a real dirty hack :/
+		#Thread.__init__(self) # This looks like a real dirty hack :/
 		raise StopIteration()
 		
 	def countTests(self):
